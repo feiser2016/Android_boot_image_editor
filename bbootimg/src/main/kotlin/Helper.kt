@@ -1,6 +1,6 @@
 package cfig
 
-import cfig.io.Struct
+import cfig.io.Struct3
 import com.google.common.math.BigIntegerMath
 import org.apache.commons.codec.binary.Hex
 import org.apache.commons.compress.compressors.gzip.GzipCompressorOutputStream
@@ -9,8 +9,6 @@ import org.apache.commons.exec.CommandLine
 import org.apache.commons.exec.DefaultExecutor
 import org.apache.commons.exec.ExecuteException
 import org.apache.commons.exec.PumpStreamHandler
-import org.junit.Assert
-import org.junit.Assert.assertTrue
 import org.slf4j.LoggerFactory
 import java.io.*
 import java.math.BigInteger
@@ -18,22 +16,50 @@ import java.math.RoundingMode
 import java.nio.charset.StandardCharsets
 import java.nio.file.Files
 import java.nio.file.Paths
-import java.security.KeyFactory
-import java.security.PrivateKey
-import java.security.spec.PKCS8EncodedKeySpec
-import java.security.spec.RSAPrivateKeySpec
 import java.util.zip.GZIPInputStream
 import java.util.zip.GZIPOutputStream
 import javax.crypto.Cipher
 
+@OptIn(ExperimentalUnsignedTypes::class)
 class Helper {
     companion object {
+        fun joinWithNulls(vararg source: ByteArray?): ByteArray {
+            val baos = ByteArrayOutputStream()
+            for (src in source) {
+                src?.let {
+                    if (src.isNotEmpty()) baos.write(src)
+                }
+            }
+            return baos.toByteArray()
+        }
+
+        fun ByteArray.paddingWith(pageSize: UInt, paddingHead: Boolean = false): ByteArray {
+            val paddingNeeded = round_to_multiple(this.size.toUInt(), pageSize) - this.size.toUInt()
+            return if (paddingNeeded > 0u) {
+                if (paddingHead) {
+                    join(Struct3("${paddingNeeded}x").pack(null), this)
+                } else {
+                    join(this, Struct3("${paddingNeeded}x").pack(null))
+                }
+            } else {
+                this
+            }
+        }
+
         fun join(vararg source: ByteArray): ByteArray {
             val baos = ByteArrayOutputStream()
             for (src in source) {
-                if (source.isNotEmpty()) baos.write(src)
+                if (src.isNotEmpty()) baos.write(src)
             }
             return baos.toByteArray()
+        }
+
+        fun toHexString(inData: UByteArray): String {
+            val sb = StringBuilder()
+            for (i in inData.indices) {
+                sb.append(Integer.toString((inData[i].toInt().and(0xff)) + 0x100, 16).substring(1))
+            }
+            return sb.toString()
         }
 
         fun toHexString(inData: ByteArray): String {
@@ -55,17 +81,6 @@ class Helper {
             return data
         }
 
-        //similar to this.toString(StandardCharsets.UTF_8).replace("${Character.MIN_VALUE}", "")
-        fun toCString(ba: ByteArray): String {
-            val str = ba.toString(StandardCharsets.UTF_8)
-            val nullPos = str.indexOf(Character.MIN_VALUE)
-            return if (nullPos >= 0) {
-                str.substring(0, nullPos)
-            } else {
-                str
-            }
-        }
-
         @Throws(IOException::class)
         fun gnuZipFile(compressedFile: String, decompressedFile: String) {
             val buffer = ByteArray(1024)
@@ -76,7 +91,7 @@ class Helper {
                         while (true) {
                             bytesRead = fis.read(buffer)
                             if (bytesRead <= 0) break
-                            gos.write(buffer, 0, bytesRead);
+                            gos.write(buffer, 0, bytesRead)
                         }
                         gos.finish()
                         log.info("gzip done: $decompressedFile -> $compressedFile")
@@ -117,6 +132,7 @@ class Helper {
             This MAY not be a problem, at least we didn't find it till now.
          */
         @Throws(IOException::class)
+        @Deprecated("this function misses features")
         fun gnuZipFile(compressedFile: String, fis: InputStream) {
             val buffer = ByteArray(1024)
             FileOutputStream(compressedFile).use { fos ->
@@ -157,9 +173,18 @@ class Helper {
                 RandomAccessFile(outImgName, "rw").use { outRaf ->
                     inRaf.seek(offset)
                     val data = ByteArray(length)
-                    assertTrue(length == inRaf.read(data))
+                    assert(length == inRaf.read(data))
                     outRaf.write(data)
                 }
+            }
+        }
+
+        fun round_to_multiple(size: UInt, page: UInt): UInt {
+            val remainder = size % page
+            return if (remainder == 0U) {
+                size
+            } else {
+                size + page - remainder
             }
         }
 
@@ -179,10 +204,11 @@ class Helper {
 
             @return: AvbRSAPublicKeyHeader formatted bytearray
                     https://android.googlesource.com/platform/external/avb/+/master/libavb/avb_crypto.h#158
+            from avbtool::encode_rsa_key()
          */
         fun encodeRSAkey(key: ByteArray): ByteArray {
             val rsa = KeyUtil.parsePemPrivateKey(ByteArrayInputStream(key))
-            Assert.assertEquals(65537.toBigInteger(), rsa.publicExponent)
+            assert(65537.toBigInteger() == rsa.publicExponent)
             val numBits: Int = BigIntegerMath.log2(rsa.modulus, RoundingMode.CEILING)
             log.debug("modulus: " + rsa.modulus)
             log.debug("numBits: $numBits")
@@ -194,7 +220,7 @@ class Helper {
             log.debug("BB: " + numBits / 8 + ", mod_len: " + rsa.modulus.toByteArray().size + ", rrmodn = " + rrModn.toByteArray().size)
             val unsignedModulo = rsa.modulus.toByteArray().sliceArray(1..numBits / 8) //remove sign byte
             log.debug("unsigned modulo: " + Hex.encodeHexString(unsignedModulo))
-            val ret = Struct("!II${numBits / 8}b${numBits / 8}b").pack(
+            val ret = Struct3("!II${numBits / 8}b${numBits / 8}b").pack(
                     numBits,
                     n0inv,
                     unsignedModulo,
@@ -249,8 +275,47 @@ class Helper {
                 "sha256" -> "sha-256"
                 "sha384" -> "sha-384"
                 "sha512" -> "sha-512"
-                else -> throw IllegalArgumentException("unknown algorithm: $alg")
+                else -> throw IllegalArgumentException("unknown algorithm: [$alg]")
             }
+        }
+
+        fun dumpToFile(dumpFile: String, data: ByteArray) {
+            log.info("Dumping data to $dumpFile ...")
+            FileOutputStream(dumpFile, false).use { fos ->
+                fos.write(data)
+            }
+            log.info("Dumping data to $dumpFile done")
+        }
+
+        fun String.check_call(): Boolean {
+            val ret: Boolean
+            try {
+                val cmd = CommandLine.parse(this)
+                log.info(cmd.toString())
+                DefaultExecutor().execute(cmd)
+                ret = true
+            } catch (e: java.lang.IllegalArgumentException) {
+                log.error("$e: can not parse command: [$this]")
+                throw e
+            } catch (e: ExecuteException) {
+                log.error("$e: can not exec command")
+                throw e
+            } catch (e: IOException) {
+                log.error("$e: can not exec command")
+                throw e
+            }
+            return ret
+        }
+
+        fun String.check_output(): String {
+            val outputStream = ByteArrayOutputStream()
+            log.info(this)
+            DefaultExecutor().let {
+                it.streamHandler = PumpStreamHandler(outputStream)
+                it.execute(CommandLine.parse(this))
+            }
+            log.info(outputStream.toString())
+            return outputStream.toString().trim()
         }
 
         private val log = LoggerFactory.getLogger("Helper")

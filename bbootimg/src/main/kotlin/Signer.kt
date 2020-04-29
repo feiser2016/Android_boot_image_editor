@@ -2,6 +2,8 @@ package cfig
 
 import avb.AVBInfo
 import avb.alg.Algorithms
+import cfig.Avb.Companion.getJsonFileName
+import cfig.bootimg.BootImgInfo
 import com.fasterxml.jackson.databind.ObjectMapper
 import org.apache.commons.exec.CommandLine
 import org.apache.commons.exec.DefaultExecutor
@@ -9,68 +11,67 @@ import org.slf4j.LoggerFactory
 import java.io.File
 
 class Signer {
+    @OptIn(ExperimentalUnsignedTypes::class)
     companion object {
         private val log = LoggerFactory.getLogger(Signer::class.java)
-        private val workDir = UnifiedConfig.workDir
 
         fun sign(avbtool: String, bootSigner: String) {
-            log.info("Loading config from ${workDir}bootimg.json")
-            val readBack = UnifiedConfig.readBack()
-            val args = readBack[0] as ImgArgs
+            log.info("Loading config from ${ParamConfig().cfg}")
+            val info2 = UnifiedConfig.readBack2()
+            val cfg = ObjectMapper().readValue(File(ParamConfig().cfg), UnifiedConfig::class.java)
 
-            when (args.verifyType) {
-                ImgArgs.VerifyType.VERIFY -> {
+            when (info2.signatureType) {
+                BootImgInfo.VerifyType.VERIFY -> {
                     log.info("Signing with verified-boot 1.0 style")
-                    val sig = readBack[2] as ImgInfo.VeritySignature
-                    DefaultExecutor().execute(CommandLine.parse("java -jar $bootSigner " +
-                            "${sig.path} ${args.output}.clear ${sig.verity_pk8} ${sig.verity_pem} ${args.output}.signed"))
+                    val sig = ImgInfo.VeritySignature()
+                    val bootSignCmd = "java -jar $bootSigner " +
+                            "${sig.path} ${cfg.info.output}.clear " +
+                            "${sig.verity_pk8} ${sig.verity_pem} " +
+                            "${cfg.info.output}.signed"
+                    log.info(bootSignCmd)
+                    DefaultExecutor().execute(CommandLine.parse(bootSignCmd))
                 }
-                ImgArgs.VerifyType.AVB -> {
+                BootImgInfo.VerifyType.AVB -> {
                     log.info("Adding hash_footer with verified-boot 2.0 style")
-                    val sig = readBack[2] as ImgInfo.AvbSignature
-                    val ai = ObjectMapper().readValue(File(Avb.getJsonFileName(args.output)), AVBInfo::class.java)
-                    //val alg = Algorithms.get(ai.header!!.algorithm_type.toInt())
+                    val ai = ObjectMapper().readValue(File(Avb.getJsonFileName(cfg.info.output)), AVBInfo::class.java)
+                    val alg = Algorithms.get(ai.header!!.algorithm_type.toInt())
+                    val bootDesc = ai.auxBlob!!.hashDescriptors[0]
+                    val newAvbInfo = ObjectMapper().readValue(File(getJsonFileName(cfg.info.output)), AVBInfo::class.java)
 
                     //our signer
-                    File(args.output + ".clear").copyTo(File(args.output + ".signed"))
-                    Avb().add_hash_footer(args.output + ".signed",
-                            sig.imageSize!!.toLong(),
-                            false,
-                            false,
-                            salt = sig.salt,
-                            hash_algorithm = sig.hashAlgorithm!!,
-                            partition_name = sig.partName!!,
-                            rollback_index = ai.header!!.rollback_index,
-                            common_algorithm = sig.algorithm!!,
-                            inReleaseString = ai.header!!.release_string)
+                    File(cfg.info.output + ".clear").copyTo(File(cfg.info.output + ".signed"))
+                    Avb().addHashFooter(cfg.info.output + ".signed",
+                            info2.imageSize,
+                            partition_name = bootDesc.partition_name,
+                            newAvbInfo = newAvbInfo)
                     //original signer
-                    File(args.output + ".clear").copyTo(File(args.output + ".signed2"))
-                    val signKey = Algorithms.get(sig.algorithm!!)
-                    var cmdlineStr = "$avbtool add_hash_footer " +
-                            "--image ${args.output}.signed2 " +
-                            "--partition_size ${sig.imageSize} " +
-                            "--salt ${sig.salt} " +
-                            "--partition_name ${sig.partName} " +
-                            "--hash_algorithm ${sig.hashAlgorithm} " +
-                            "--algorithm ${sig.algorithm} "
-                    if (signKey!!.defaultKey.isNotBlank()) {
-                        cmdlineStr += "--key ${signKey.defaultKey}"
+                    CommandLine.parse("$avbtool add_hash_footer").apply {
+                        addArguments("--image ${cfg.info.output}.signed2")
+                        addArguments("--partition_size ${info2.imageSize}")
+                        addArguments("--salt ${Helper.toHexString(bootDesc.salt)}")
+                        addArguments("--partition_name ${bootDesc.partition_name}")
+                        addArguments("--hash_algorithm ${bootDesc.hash_algorithm}")
+                        addArguments("--algorithm ${alg!!.name}")
+                        if (alg.defaultKey.isNotBlank()) {
+                            addArguments("--key ${alg.defaultKey}")
+                        }
+                        newAvbInfo.auxBlob?.let { newAuxblob ->
+                            newAuxblob.propertyDescriptor.forEach { newProp ->
+                                addArguments(arrayOf("--prop", "${newProp.key}:${newProp.value}"))
+                            }
+                        }
+                        addArgument("--internal_release_string")
+                        addArgument(ai.header!!.release_string, false)
+                        log.info(this.toString())
+
+                        File(cfg.info.output + ".clear").copyTo(File(cfg.info.output + ".signed2"))
+                        DefaultExecutor().execute(this)
                     }
-                    log.warn(cmdlineStr)
-                    val cmdLine = CommandLine.parse(cmdlineStr)
-                    cmdLine.addArgument("--internal_release_string")
-                    cmdLine.addArgument(ai.header!!.release_string, false)
-                    DefaultExecutor().execute(cmdLine)
-                    verifyAVBIntegrity(args, avbtool)
+                    //TODO: decide what to verify
+                    //Parser.verifyAVBIntegrity(cfg.info.output + ".signed", avbtool)
+                    //Parser.verifyAVBIntegrity(cfg.info.output + ".signed2", avbtool)
                 }
             }
-        }
-
-        private fun verifyAVBIntegrity(args: ImgArgs, avbtool: String) {
-            val tgt = args.output + ".signed"
-            log.info("Verifying AVB: $tgt")
-            DefaultExecutor().execute(CommandLine.parse("$avbtool verify_image --image $tgt"))
-            log.info("Verifying image passed: $tgt")
         }
 
         fun mapToJson(m: LinkedHashMap<*, *>): String {

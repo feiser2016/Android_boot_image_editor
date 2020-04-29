@@ -37,8 +37,28 @@ Now we can work with 'raw\_boot'
 
 Due to the configuration "BOARD_BUILD_SYSTEM_ROOT_IMAGE := true", the embeded ramdisk in boot.img is actually used in recovery mode.
 
+## Pixel 3 (blueline)
+
+Fickle Google removed "BOARD_BUILD_SYSTEM_ROOT_IMAGE" and added "ro.boot.dynamic_partitions=true", which means normal mode ramdisk is back. Besides, it also packed DTB inside boot.img.
+
 ## NX606J
 
 Thanks to the work by [CallMESuper], ZTE NX606J boot.img is also verified to be compatible with this toolkit.
 
 ROM download page: [http://ui.nubia.cn/rom/detail/56](http://ui.nubia.cn/rom/detail/56)
+
+## K3 (CPH1955)
+
+`boot.img` extracted from OTA zip file doesn't work properly but `recovery.img` works fine. In order to obtain `recovery.img`, a `bsdiff` patch from `system/recovery-from-boot.p` is applied to `boot.img`. Ex: ```bspatch boot.img recovery.img system/recovery-from-boot.p```
+
+This part is contributed by @Surendrajat, thanks!
+
+## about porting
+
+#### libsparse: output\_file.cpp
+
+*typeof* is missing in macos clang++, need to change it to *decltype* instead.
+
+## using pre-packed ramdisk.img.gz
+place 'ramdisk.img.gz' in directory, delete "root/", program will use it as prebuilt.
+

@@ -1,11 +1,9 @@
-dist: trusty
+dist: bionic
 language: java
 before_install:
-  - sudo apt-get -qq update
-  - sudo apt-get install -y libblkid-dev
-
+  - sudo apt -qq update
+  - sudo apt install -y libblkid-dev liblz4-tool device-tree-compiler
 script:
   - ./gradlew check
-  - ./gradlew _setup
-  - ./gradlew unpack
-  - ./gradlew pack
+  - ./gradlew clean
+  - ./integrationTest.py

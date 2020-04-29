@@ -1,9 +1,9 @@
+[中文](doc/short.md)
 # Android_boot_image_editor
 [![Build Status](https://travis-ci.org/cfig/Android_boot_image_editor.svg?branch=master)](https://travis-ci.org/cfig/Android_boot_image_editor)
 [![License](http://img.shields.io/:license-apache-blue.svg?style=flat-square)](http://www.apache.org/licenses/LICENSE-2.0.html)
-[![Gitter chat](https://badges.gitter.im/gitterHQ/gitter.png)](https://gitter.im/Android_boot_image_editor/lobby)
 
-This tool focuses on editing Android boot.img(also recovery.img, recovery-two-step.img and vbmeta.img).
+This tool focuses on editing Android boot.img(also recovery.img, and vbmeta.img).
 
 ## 1. Prerequisite
 #### 1.1 Host OS requirement:
@@ -13,20 +13,25 @@ Also need python 2.x and jdk 8.
 
 #### 1.2 Target Android requirement:
 
-(1) Target boot.img MUST follows AOSP verified boot flow, either [Boot image signature](https://source.android.com/security/verifiedboot/verified-boot#signature_format) in VBoot 1.0 or [AVB HASH footer](https://android.googlesource.com/platform/external/avb/+/master/README.md#The-VBMeta-struct) in VBoot 2.0.
+(1) Target boot.img MUST follows AOSP verified boot flow, either [Boot image signature](https://source.android.com/security/verifiedboot/verified-boot#signature_format) in VBoot 1.0 or [AVB HASH footer](https://android.googlesource.com/platform/external/avb/+/master/README.md#The-VBMeta-struct) (a.k.a. AVB) in VBoot 2.0.
 
 Supported images:
  - boot.img
- - recovery.img
- - recovery-two-step.img
- - vbmeta.img
+ - recovery.img (also recovery-two-step.img)
+ - vbmeta.img (also vbmeta\_system.img, vbmeta\_vendor.img etc.)
+ - dtbo.img (only 'unpack' is supported)
+ - sparse images (system.img, vendor.img ...)
 
 (2) These utilities are known to work for Nexus/Pixel boot.img for the following Android releases:
 
  - AOSP master
- - Lollipop (5.0) - Pie (9)
+ - Lollipop (5.0) - Android 10
 
 ## 2. Usage
+Clone this repo with minimal depth:
+
+    git clone https://github.com/cfig/Android_boot_image_editor.git --depth=1
+
 Put your boot.img to current directory, then start gradle 'unpack' task:
 
     cp <original_boot_image> boot.img
@@ -38,7 +43,9 @@ Your get the flattened kernel and /root filesystem under **./build/unzip\_boot**
     ├── boot.img.avb.json (AVB only)
     ├── bootimg.json (boot image info)
     ├── kernel
-    ├── second (2nd bootloader, if exists)
+    ├── second       (2nd bootloader, if exists)
+    ├── dtb          (dtb, if exists)
+    ├── dtbo         (dtbo, if exists)
     └── root
 
 Then you can edit the actual file contents, like rootfs or kernel.
@@ -50,6 +57,8 @@ You get the repacked boot.img at $(CURDIR):
 
     boot.img.signed
 
+Well done you did it! The last step is to add the star to this repo :smile
+
 #### If you are working with recovery.img
 If you are working with recovery.img, the steps are similar:
 
@@ -59,6 +68,9 @@ If you are working with recovery.img, the steps are similar:
 
 And you get recovery.img.signed
 
+
+### usage demo
+![](doc/op.gif)
 
 ## 3. example & test
 An example boot.img has been placed at **src/test/resources/boot.img**, which is extracted from Nexus 5x(code: bullhead) factory images from [Google](https://dl.google.com/dl/android/aosp/bullhead-mda89e-factory-29247942.tgz), you can take it as a quick start.
@@ -71,19 +83,19 @@ We now support both VB 1.0 and AVB 2.0 layouts.
 
 | Device Model                   | Manufacturer | Compatible           | Android Version          | Note |
 |--------------------------------|--------------|----------------------|--------------------------|------|
+| Pixel 3 (blueline)             | Google       | Y                    | Q preview (qpp2.190228.023, <Br>2019)| [more ...](doc/additional_tricks.md#pixel-3-blueline) |
 | Pixel XL (marlin)              | HTC          | Y                    | 9.0.0 (PPR2.180905.006, <Br>Sep 2018)| [more ...](doc/additional_tricks.md#pixel-xl-marlin) |
-| Z18(NX606J)                    | ZTE          | Y                    | 8.1.0                    | [more...](doc/additional_tricks.md#nx606j) |
+| K3 (CPH1955)                   | OPPO         | Y for recovery.img<Br> N for boot.img  | Pie    | [more](doc/additional_tricks.md#k3-cph1955) |
+| Z18 (NX606J)                    | ZTE          | Y                    | 8.1.0                    | [more...](doc/additional_tricks.md#nx606j) |
 | Nexus 9 (volantis/flounder)    | HTC          | Y(with some tricks)  | 7.1.1 (N9F27M, Oct 2017) | [tricks](doc/additional_tricks.md#tricks-for-nexus-9volantis)|
 | Nexus 5x (bullhead)            | LG           | Y                    | 6.0.0_r12 (MDA89E)       |      |
 | Moto X (2013) T-Mobile         | Motorola     | N                    |                          |      |
+| X7 (PD1602_A_3.12.8)           | VIVO         | N                    | ?                        | [Issue 35](https://github.com/cfig/Android_boot_image_editor/issues/35) |
 
 ## 6. References
 
 boot\_signer
 https://android.googlesource.com/platform/system/extras
-
-bouncycastle
-https://android.googlesource.com/platform/external/bouncycastle
 
 cpio / fs\_config
 https://android.googlesource.com/platform/system/core
@@ -91,5 +103,20 @@ https://android.googlesource.com/platform/system/core
 AVB
 https://android.googlesource.com/platform/external/avb/
 
+mkbootimg
+https://android.googlesource.com/platform/system/tools/mkbootimg/+/refs/heads/master/
+
 Android version list
 https://source.android.com/source/build-numbers.html
+
+kernel info extractor
+https://android.googlesource.com/platform/build/+/refs/heads/master/tools/extract_kernel.py
+
+mkdtboimg
+https://android.googlesource.com/platform/system/libufdt/
+
+libsparse
+https://android.googlesource.com/platform/system/core/+/refs/heads/master/libsparse/
+
+Android Nexus/Pixle factory images
+https://developers.google.cn/android/images

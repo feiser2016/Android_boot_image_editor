@@ -5,6 +5,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Test
 import java.io.ByteArrayInputStream
 
+@OptIn(ExperimentalUnsignedTypes::class)
 class KernelCmdlineDescriptorTest {
     @Test
     fun encode() {
